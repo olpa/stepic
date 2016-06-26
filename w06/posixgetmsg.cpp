@@ -23,7 +23,7 @@ int main() {
   mqd_t mqdes = mq_open(qname.c_str(), O_RDWR|O_CREAT|O_EXCL, 0777, nullptr);
   xerror(mqdes, "mq_open");
 
-  char buf[1024];
+  char buf[10240]; // better to get the size from the system
   //int len = mq_receive(mqdes, buf, sizeof(buf), nullptr);
   int len = 2;
   buf[0] = 'A';
