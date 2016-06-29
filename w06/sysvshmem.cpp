@@ -15,8 +15,10 @@ int main() {
   assert (-1 != shmid);
   void *buf = shmat(shmid, nullptr, 0);
   assert ((void*)-1 != buf);
-  std::array<unsigned char, mlen> data;
-  std::fill(std::begin(data), std::end(data), 42);
+  int i = 0;
+  for (unsigned char *p = static_cast<unsigned char*>(buf); i < mlen; i++) {
+    *p++ = 42;
+  }
   signal(SIGTERM, [](int){});
   pause();
   int ccode = shmdt(buf);
