@@ -23,6 +23,7 @@ int main() {
     *p++ = 13;
   }
   signal(SIGTERM, [](int){});
+  signal(SIGINT, [](int){});
   pause();
   ccode = munmap(buf, mlen);
   assert (-1 != ccode);
