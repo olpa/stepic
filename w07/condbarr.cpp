@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <thread>
 #include <unistd.h>
 #include <pthread.h>
@@ -21,6 +22,12 @@ void barrier_waiter(pthread_barrier_t &bp) {
 
 int main() {
   int ccode;
+  {
+    std::ofstream os{"main.pid"};
+    assert(os);
+    os << getpid() << std::endl;
+  }
+  //
   pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
   std::thread t1(cond_waiter, std::ref(cond));
   //
