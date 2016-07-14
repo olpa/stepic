@@ -4,6 +4,7 @@
 #include <iterator>
 #include <cassert>
 #include <algorithm>
+#include <tbb/parallel_invoke.h>
 
 // tmpbegin is of the same size
 void merge_sort(auto in_begin, auto in_end, auto out_begin, auto tmp_begin) {
@@ -17,8 +18,13 @@ void merge_sort(auto in_begin, auto in_end, auto out_begin, auto tmp_begin) {
   auto tmp_end   = tmp_begin + n;
   auto out_partb = out_begin + n/2;
   auto out_end   = out_begin + n;
-  merge_sort(in_begin, in_partb, tmp_begin, out_begin);
-  merge_sort(in_partb, in_end,   tmp_partb, out_partb);
+  auto func1 = [&]() {
+    merge_sort(in_begin, in_partb, tmp_begin, out_begin);
+  };
+  auto func2 = [&]() {
+    merge_sort(in_partb, in_end,   tmp_partb, out_partb);
+  };
+  tbb::parallel_invoke(func1, func2);
   auto ptr_a = tmp_begin;
   auto ptr_b = tmp_partb;
   for (auto i = out_begin; i != out_end; ++i) {
