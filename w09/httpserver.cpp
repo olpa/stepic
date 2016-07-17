@@ -2,6 +2,7 @@
 #include <string>
 #include <unistd.h>
 #include <assert.h>
+#include <asio/io_service.hpp>
 
 struct ServerOptions {
   bool stay_foreground;
@@ -52,4 +53,7 @@ int main(int argc, char **argv) {
   if (! opt.config_ok) {
     return 1;                                              // exit
   }
+  asio::io_service io_service;
+  io_service.run();
+  std::cerr << "Mark" << std::endl;
 }
