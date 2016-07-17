@@ -5,10 +5,13 @@
 #include <signal.h>
 #include <asio.hpp>
 
+//
+// Command line
+//
 struct ServerOptions {
   bool stay_foreground;
   bool config_ok;
-  std::string ip_address;
+  std::string host_name;
   unsigned int port;
   std::string root;
 };
@@ -23,8 +26,8 @@ ServerOptions parse_cmdline(int argc, char **argv) {
         std::cout << "StayForeground=true" << std::endl;
         break;
       case 'h':
-        opt.ip_address = optarg;
-        std::cout << "IP=" << opt.ip_address << std::endl;
+        opt.host_name = optarg;
+        std::cout << "IP=" << opt.host_name << std::endl;
         break;
       case 'p':
         opt.port = std::stoi(optarg);
@@ -49,12 +52,50 @@ ServerOptions parse_cmdline(int argc, char **argv) {
   return opt;
 }
 
+//
+// Server
+//
+class Server {
+  private:
+    asio::io_service &service_;
+  public:
+    Server(asio::io_service &service, ServerOptions &opt, asio::error_code &ec):
+      service_(service) {
+      asio::ip::tcp::resolver::query query(opt.host_name, std::to_string(opt.port));
+      asio::ip::tcp::resolver dns(service_);
+      auto i = dns.resolve(query, ec);
+      if (ec) {
+        std::cerr << "Resolver error: " << ec << std::endl;
+        return;
+      }
+      asio::ip::tcp::endpoint endpoint = *i;
+      std::cout << "Got endpoint " << endpoint << std::endl;
+    }
+};
+
+//
+// Entry point
+//
 int main(int argc, char **argv) {
+  //
+  // Command line
+  //
   ServerOptions opt = parse_cmdline(argc, argv);
   if (! opt.config_ok) {
     return 1;                                              // exit
   }
+  //
+  // Bind on interface
+  //
+  //
+  // io_service loop
+  //
   static asio::io_service io_service; // static for lambda
+  asio::error_code ec;
+  Server srv(io_service, opt, ec);
+  if (ec) {
+    return 1;                                              // exit
+  }
   asio::io_service::work work(io_service);
   signal(SIGINT, [](int){
       std::cout << "Normal exit on Ctrl+C" << std::endl;
