@@ -2,7 +2,8 @@
 #include <string>
 #include <unistd.h>
 #include <assert.h>
-#include <asio/io_service.hpp>
+#include <signal.h>
+#include <asio.hpp>
 
 struct ServerOptions {
   bool stay_foreground;
@@ -53,7 +54,13 @@ int main(int argc, char **argv) {
   if (! opt.config_ok) {
     return 1;                                              // exit
   }
-  asio::io_service io_service;
+  static asio::io_service io_service; // static for lambda
+  asio::io_service::work work(io_service);
+  signal(SIGINT, [](int){
+      std::cout << "Normal exit on Ctrl+C" << std::endl;
+      io_service.stop();
+      });
   io_service.run();
-  std::cerr << "Mark" << std::endl;
+  std::cout << "Exiting" << std::endl;
+  return 0;
 }
