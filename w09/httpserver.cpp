@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string>
+#include <memory>
 #include <unistd.h>
 #include <assert.h>
 #include <signal.h>
@@ -53,23 +54,62 @@ ServerOptions parse_cmdline(int argc, char **argv) {
 }
 
 //
+// Session
+//
+class Session {
+  asio::ip::tcp::socket socket_;
+public:
+  Session(asio::io_service &service): socket_(service) {}
+  asio::ip::tcp::socket &get_socket() { return socket_; }
+};
+
+//
 // Server
 //
 class Server {
-  private:
     asio::io_service &service_;
+    const ServerOptions opt;
+    std::unique_ptr<asio::ip::tcp::acceptor> acceptor_;
+    asio::ip::tcp::endpoint endpoint_;
   public:
-    Server(asio::io_service &service, ServerOptions &opt, asio::error_code &ec):
-      service_(service) {
+    Server(asio::io_service &service, ServerOptions &opt):
+      service_(service), opt(opt) { };
+
+    bool start() {
       asio::ip::tcp::resolver::query query(opt.host_name, std::to_string(opt.port));
       asio::ip::tcp::resolver dns(service_);
+      asio::error_code ec;
       auto i = dns.resolve(query, ec);
       if (ec) {
         std::cerr << "Resolver error: " << ec << std::endl;
-        return;
+        return false;
       }
-      asio::ip::tcp::endpoint endpoint = *i;
-      std::cout << "Got endpoint " << endpoint << std::endl;
+      endpoint_ = *i;
+      std::cout << "Got endpoint " << endpoint_ << std::endl;
+      try {
+        acceptor_ = std::make_unique<asio::ip::tcp::acceptor>(service_, endpoint_);
+        accept_again();
+      } catch (asio::system_error e) {
+        std::cerr << "Acceptor error: " << e.what() << std::endl;
+        return false;
+      };
+      return true;
+    }
+
+    void accept_again() {
+      Session *psession = new Session(service_); // who deletes?
+      auto cb =  [&](const asio::error_code& error) {
+          on_accept(error);
+          };
+      acceptor_->async_accept(psession->get_socket(), endpoint_, cb);
+    }
+
+    void on_accept(const asio::error_code& error) {
+      if (error) {
+        std::cerr << "on_accept error: " << error << std::endl;
+        service_.stop();
+      }
+      std::cout << "Got connection" << std::endl;
     }
 };
 
@@ -87,16 +127,16 @@ int main(int argc, char **argv) {
   //
   // Bind on interface
   //
+  static asio::io_service io_service; // static for lambda
+  asio::error_code ec;
+  Server server(io_service, opt);
+  if (! server.start()) {
+    return 1;                                              // exit
+  }
   //
   // io_service loop
   //
-  static asio::io_service io_service; // static for lambda
-  asio::error_code ec;
-  Server srv(io_service, opt, ec);
-  if (ec) {
-    return 1;                                              // exit
-  }
-  asio::io_service::work work(io_service);
+  //asio::io_service::work work(io_service);
   signal(SIGINT, [](int){
       std::cout << "Normal exit on Ctrl+C" << std::endl;
       io_service.stop();
