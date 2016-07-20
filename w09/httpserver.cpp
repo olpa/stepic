@@ -1,10 +1,17 @@
 #include <iostream>
 #include <string>
 #include <memory>
+#include <functional>
 #include <unistd.h>
 #include <assert.h>
 #include <signal.h>
 #include <asio.hpp>
+
+// g++ -std=c++14 httpserver.cpp -lpthread
+
+// TODO: check is multithreaded
+//
+// TODO: why lambdas do not work (20 jul)
 
 //
 // Command line
@@ -58,9 +65,22 @@ ServerOptions parse_cmdline(int argc, char **argv) {
 //
 class Session {
   asio::ip::tcp::socket socket_;
+  asio::streambuf buf_;
 public:
-  Session(asio::io_service &service): socket_(service) {}
-  asio::ip::tcp::socket &get_socket() { return socket_; }
+  asio::ip::tcp::socket& get_socket() { return socket_; }
+
+
+  void on_read(const asio::error_code& error) {
+    if (error) {
+      std::cerr << "on_read err" << error << std::endl;
+      //delete this;
+    } else {
+      std::istream is(&buf_);
+      std::string line;
+      std::getline(is, line);
+      std::cout << "buffer: " << line << std::endl;
+    }
+  }
 };
 
 //
@@ -74,6 +94,10 @@ class Server {
   public:
     Server(asio::io_service &service, ServerOptions &opt):
       service_(service), opt(opt) { };
+
+    asio::io_service& get_service() {
+      return service_;
+    }
 
     bool start() {
       asio::ip::tcp::resolver::query query(opt.host_name, std::to_string(opt.port));
@@ -97,20 +121,29 @@ class Server {
     }
 
     void accept_again() {
-      Session *psession = new Session(service_); // who deletes?
+      auto sock = new asio::ip::tcp::socket(service_); // will be overtaken by Session
+      /*
       auto cb =  [&](const asio::error_code& error) {
-          on_accept(error);
+          psession->on_accept(error);
+          accept_again();
           };
-      acceptor_->async_accept(psession->get_socket(), endpoint_, cb);
+          */
+      auto cb = std::bind(&Server::on_accept, this, sock, std::placeholders::_1);
+      acceptor_->async_accept(*sock, endpoint_, cb);
     }
 
-    void on_accept(const asio::error_code& error) {
-      if (error) {
-        std::cerr << "on_accept error: " << error << std::endl;
-        service_.stop();
-      }
+  void on_accept(asio::ip::tcp::socket* sock, const asio::error_code& error) {
+    std::unique_ptr<asio::ip::tcp::socket> upsock(sock);
+    if (error) {
+      std::cerr << "on_accept error: " << error << std::endl;
+    } else {
       std::cout << "Got connection" << std::endl;
+      // TODO: read the connection in the new thread
+      //auto cb = std::bind(&Session::on_read, this, std::placeholders::_1);
+      //asio::async_read_until(socket_, buf_, "\r\n", cb);
+      accept_again();
     }
+  }
 };
 
 //
