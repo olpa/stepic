@@ -3,12 +3,14 @@
 #include <string>
 #include <memory>
 #include <functional>
+#include <thread>
+#include <mutex>
 #include <unistd.h>
 #include <assert.h>
 #include <signal.h>
 #include <asio.hpp>
 
-// g++ -std=c++14 httpserver.cpp -lpthread
+// g++ -std=c++11 httpserver.cpp -lpthread
 
 // TODO: check is multithreaded
 //
@@ -20,7 +22,6 @@
 //
 // TODO: timeout
 //
-// TODO: delete(self) watchdog, a la unique_ptr
 
 //
 // Command line
@@ -81,6 +82,26 @@ std::string resolve_uri(const ServerOptions& opt, const std::string& uri) {
 }
 
 //
+// Fast and dirty logging
+//
+std::ofstream logger;
+std::mutex log_mutex;
+
+void start_log(char *myname) {
+  std::string fname(myname);
+  std::size_t pos = fname.rfind('/');
+  if (pos == std::string::npos) {
+    pos = 0;
+  } else {
+    pos++;
+  }
+  fname.replace(pos, std::string::npos, "log.txt");
+  std::cout << "Logging to: " << fname;
+  logger.open(fname, std::ios_base::out | std::ios_base::ate);
+  std::cout << ", is good: " << logger.good() << std::endl;
+}
+
+//
 //
 //
 template<class T>
@@ -131,8 +152,15 @@ public:
       return;
     }
     std::istream is(&buf_);
+    std::string line;
+    std::getline(is, line);
+    {
+      std::unique_lock<std::mutex> lck{log_mutex};
+      logger << "Request: " << line << std::endl << std::flush;
+    }
+    std::istringstream iss{line};
     std::string method, uri;
-    is >> method >> uri; // Assumed: no spaces in uri. Don't care about the http-version
+    iss >> method >> uri; // Assumed: no spaces in uri. Don't care about the http-version
     std::cout << "Got request (" << method << "):" << uri << std::endl;
     handle_http_request(method, uri);
     killer.escape();
@@ -248,6 +276,7 @@ int main(int argc, char **argv) {
   if (! opt.config_ok) {
     return 1;                                              // exit
   }
+  start_log(argv[0]);
   //
   // Bind on interface
   //
