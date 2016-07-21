@@ -202,7 +202,7 @@ class Server {
       endpoint_ = *i;
       std::cout << "Got endpoint " << endpoint_ << std::endl;
       try {
-        acceptor_ = std::make_unique<asio::ip::tcp::acceptor>(service_, endpoint_);
+        acceptor_.reset(new asio::ip::tcp::acceptor(service_, endpoint_));
         accept_again();
       } catch (asio::system_error e) {
         std::cerr << "Acceptor error: " << e.what() << std::endl;
