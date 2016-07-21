@@ -52,9 +52,19 @@ void pipemaker(strings &tokens) {
 int main() {
   strings tokens;
   std::string cmd;
+  std::string pipe("|");
   while ((std::cin >> cmd)) {
-    tokens.push_back(cmd);
-    //std::cout << "Token: '" << cmd << '\'' << std::endl;
+    std::size_t pos;
+    while ((pos = cmd.find('|')) != std::string::npos) {
+      if (pos > 0) {
+        tokens.push_back(cmd.substr(0, pos));
+      };
+      tokens.push_back(pipe);
+      cmd = cmd.substr(pos+1);
+    }
+    if (! cmd.empty()) {
+      tokens.push_back(cmd);
+    }
   }
   pipemaker(tokens);
 }
