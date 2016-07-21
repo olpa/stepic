@@ -88,6 +88,7 @@ std::ofstream logger;
 std::mutex log_mutex;
 
 void start_log(char *myname) {
+  /*
   std::string fname(myname);
   std::size_t pos = fname.rfind('/');
   if (pos == std::string::npos) {
@@ -96,6 +97,8 @@ void start_log(char *myname) {
     pos++;
   }
   fname.replace(pos, std::string::npos, "log.txt");
+  */
+  std::string fname{"/tmp/log.txt"};
   std::cout << "Logging to: " << fname;
   logger.open(fname, std::ios_base::out | std::ios_base::ate);
   std::cout << ", is good: " << logger.good() << std::endl;
