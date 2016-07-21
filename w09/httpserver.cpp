@@ -12,6 +12,8 @@
 // TODO: check is multithreaded
 //
 // TODO: why lambdas do not work (20 jul)
+//
+// TODO: check for memory leaks
 
 //
 // Command line
@@ -63,23 +65,31 @@ ServerOptions parse_cmdline(int argc, char **argv) {
 //
 // Session
 //
+using upsocket_t = std::unique_ptr<asio::ip::tcp::socket>;
+
 class Session {
-  asio::ip::tcp::socket socket_;
+  upsocket_t upsocket_;
   asio::streambuf buf_;
 public:
-  asio::ip::tcp::socket& get_socket() { return socket_; }
+  Session(upsocket_t &upsocket): upsocket_(std::move(upsocket)) {}
 
+  void start() {
+    auto cb = std::bind(&Session::on_read, this, std::placeholders::_1);
+    asio::ip::tcp::socket *sock = upsocket_.get();
+    asio::async_read_until(*sock, buf_, "\r\n", cb);
+  }
 
   void on_read(const asio::error_code& error) {
     if (error) {
-      std::cerr << "on_read err" << error << std::endl;
-      //delete this;
-    } else {
-      std::istream is(&buf_);
-      std::string line;
-      std::getline(is, line);
-      std::cout << "buffer: " << line << std::endl;
+      std::cerr << "on_read error: " << error << std::endl;
+      delete this;
+      return;
     }
+    std::istream is(&buf_);
+    std::string line;
+    std::getline(is, line);
+    std::cout << "buffer: " << line << std::endl;
+    delete this; // FIXME
   }
 };
 
@@ -133,14 +143,14 @@ class Server {
     }
 
   void on_accept(asio::ip::tcp::socket* sock, const asio::error_code& error) {
-    std::unique_ptr<asio::ip::tcp::socket> upsock(sock);
+    upsocket_t upsock(sock);
     if (error) {
       std::cerr << "on_accept error: " << error << std::endl;
     } else {
       std::cout << "Got connection" << std::endl;
-      // TODO: read the connection in the new thread
-      //auto cb = std::bind(&Session::on_read, this, std::placeholders::_1);
-      //asio::async_read_until(socket_, buf_, "\r\n", cb);
+      Session *psession = new Session(upsock); // freed in Session self using delete(self)
+      // TODO: handle the connection in the new thread
+      psession->start();
       accept_again();
     }
   }
