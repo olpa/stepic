@@ -14,6 +14,8 @@
 // TODO: why lambdas do not work (20 jul)
 //
 // TODO: check for memory leaks
+//
+// error_code: with or without reference
 
 //
 // Command line
@@ -89,7 +91,25 @@ public:
     std::string line;
     std::getline(is, line);
     std::cout << "buffer: " << line << std::endl;
-    delete this; // FIXME
+    handle_http_request(line);
+  }
+
+  void handle_http_request(const std::string &req) {
+    std::ostream os(&buf_);
+    os << "HTTP/1.1 400 Bad Request\r\n";
+    auto cb = std::bind(&Session::on_write, this, std::placeholders::_1);
+    asio::ip::tcp::socket *sock = upsocket_.get();
+    asio::async_write(*sock, buf_, cb);
+    //std::string badreq{"HTTP/1.1 400 Bad Request"};
+  }
+
+  void on_write(const asio::error_code& error) {
+    if (error) {
+      std::cerr << "on_write error: " << error << std::endl;
+    } else {
+      std::cout << "on_write: done" << std::endl;
+    }
+    delete this;
   }
 };
 
