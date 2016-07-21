@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <memory>
 #include <functional>
@@ -15,7 +16,11 @@
 //
 // TODO: check for memory leaks
 //
-// error_code: with or without reference
+// TODO: error_code: with or without reference
+//
+// TODO: timeout
+//
+// TODO: delete(self) watchdog, a la unique_ptr
 
 //
 // Command line
@@ -64,52 +69,108 @@ ServerOptions parse_cmdline(int argc, char **argv) {
   return opt;
 }
 
+std::string resolve_uri(const ServerOptions& opt, const std::string& uri) {
+  std::string fname(opt.root);
+  if (! uri.empty()) {
+    if ('/' != uri[0]) {
+      fname.append("/"); // ok also for win32
+    }
+    fname.append(uri);
+  }
+  return fname;
+}
+
+//
+//
+//
+template<class T>
+class Killer {
+  T    *obj_ = nullptr;
+  bool kill_ = true;
+public:
+  Killer(T *obj): obj_(obj) {};
+  Killer(Killer &) = delete;
+  ~Killer() {
+    if (kill_ and obj_) {
+      std::cerr << "Killer deletes" << std::endl; // FIXME
+      delete obj_;
+    }
+  }
+  void escape() {
+    kill_ = false;
+  }
+};
+
 //
 // Session
 //
 using upsocket_t = std::unique_ptr<asio::ip::tcp::socket>;
 
 class Session {
-  upsocket_t upsocket_;
-  asio::streambuf buf_;
+  upsocket_t          upsocket_;
+  asio::streambuf     buf_;
+  const ServerOptions &opt_;
+  std::ifstream       file_content;
+  constexpr static size_t chunk_size = 1024;
+  char  file_content_buf[chunk_size];
 public:
-  Session(upsocket_t &upsocket): upsocket_(std::move(upsocket)) {}
+  Session(upsocket_t& upsocket, const ServerOptions& opt): upsocket_(std::move(upsocket)), opt_(opt) {}
 
   void start() {
-    auto cb = std::bind(&Session::on_read, this, std::placeholders::_1);
+    Killer<Session> killer(this);
+    auto cb = std::bind(&Session::after_read, this, std::placeholders::_1);
     asio::ip::tcp::socket *sock = upsocket_.get();
     asio::async_read_until(*sock, buf_, "\r\n", cb);
+    killer.escape();
   }
 
-  void on_read(const asio::error_code& error) {
+  void after_read(const asio::error_code& error) {
+    Killer<Session> killer(this);
     if (error) {
-      std::cerr << "on_read error: " << error << std::endl;
-      delete this;
+      std::cerr << "after_read error: " << error << std::endl;
       return;
     }
     std::istream is(&buf_);
-    std::string line;
-    std::getline(is, line);
-    std::cout << "buffer: " << line << std::endl;
-    handle_http_request(line);
+    std::string method, uri;
+    is >> method >> uri; // Assumed: no spaces in uri. Don't care about the http-version
+    std::cout << "Got request (" << method << "):" << uri << std::endl;
+    handle_http_request(method, uri);
+    killer.escape();
   }
 
-  void handle_http_request(const std::string &req) {
-    std::ostream os(&buf_);
-    os << "HTTP/1.1 400 Bad Request\r\n";
-    auto cb = std::bind(&Session::on_write, this, std::placeholders::_1);
-    asio::ip::tcp::socket *sock = upsocket_.get();
-    asio::async_write(*sock, buf_, cb);
-    //std::string badreq{"HTTP/1.1 400 Bad Request"};
-  }
-
-  void on_write(const asio::error_code& error) {
-    if (error) {
-      std::cerr << "on_write error: " << error << std::endl;
+  void handle_http_request(const std::string &method, const std::string uri) {
+    Killer<Session> killer(this);
+    std::string response;
+    if (method != "GET") {
+      response = "HTTP/1.0 501 Not Implemented\r\n";
     } else {
-      std::cout << "on_write: done" << std::endl;
+      std::string fname = resolve_uri(opt_, uri);
+      file_content.open(fname, std::ifstream::binary);
+      if (file_content.good()) {
+        response = "HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n";
+      } else {
+        response = "HTTP/1.0 404 Not found\r\n";
+      }
     }
-    delete this;
+    auto cb = std::bind(&Session::loop_write_file_content, this, std::placeholders::_1);
+    asio::ip::tcp::socket *sock = upsocket_.get();
+    asio::async_write(*sock, asio::buffer(response.c_str(), response.size()), cb);
+    killer.escape();
+  }
+
+  void loop_write_file_content(const asio::error_code& error) {
+    Killer<Session> killer(this);
+    if (error) {
+      std::cerr << "after_write_file_content error: " << error << std::endl;
+      return;
+    }
+    if (file_content.good()) {
+      file_content.read(file_content_buf, chunk_size);
+      auto cb = std::bind(&Session::loop_write_file_content, this, std::placeholders::_1);
+      asio::ip::tcp::socket *sock = upsocket_.get();
+      asio::async_write(*sock, asio::buffer(file_content_buf, file_content.gcount()), cb);
+      killer.escape();
+    }
   }
 };
 
@@ -118,19 +179,19 @@ public:
 //
 class Server {
     asio::io_service &service_;
-    const ServerOptions opt;
+    const ServerOptions opt_;
     std::unique_ptr<asio::ip::tcp::acceptor> acceptor_;
     asio::ip::tcp::endpoint endpoint_;
   public:
     Server(asio::io_service &service, ServerOptions &opt):
-      service_(service), opt(opt) { };
+      service_(service), opt_(opt) { };
 
     asio::io_service& get_service() {
       return service_;
     }
 
     bool start() {
-      asio::ip::tcp::resolver::query query(opt.host_name, std::to_string(opt.port));
+      asio::ip::tcp::resolver::query query(opt_.host_name, std::to_string(opt_.port));
       asio::ip::tcp::resolver dns(service_);
       asio::error_code ec;
       auto i = dns.resolve(query, ec);
@@ -168,7 +229,7 @@ class Server {
       std::cerr << "on_accept error: " << error << std::endl;
     } else {
       std::cout << "Got connection" << std::endl;
-      Session *psession = new Session(upsock); // freed in Session self using delete(self)
+      Session *psession = new Session(upsock, opt_); // freed in Session self using delete(self)
       // TODO: handle the connection in the new thread
       psession->start();
       accept_again();
