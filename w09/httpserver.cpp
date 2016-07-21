@@ -164,6 +164,10 @@ public:
     std::istringstream iss{line};
     std::string method, uri;
     iss >> method >> uri; // Assumed: no spaces in uri. Don't care about the http-version
+    std::size_t pos = uri.find('?');
+    if (pos != std::string::npos) {
+      uri.erase(pos);
+    }
     std::cout << "Got request (" << method << "):" << uri << std::endl;
     handle_http_request(method, uri);
     killer.escape();
