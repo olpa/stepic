@@ -258,9 +258,15 @@ int main(int argc, char **argv) {
     return 1;                                              // exit
   }
   //
+  // Deamon
+  //
+  if (! opt.stay_foreground) {
+    std::cout << "PID = " << getpid() << std::endl;
+    daemon(0, 0);
+  }
+  //
   // io_service loop
   //
-  //asio::io_service::work work(io_service);
   signal(SIGINT, [](int){
       std::cout << "Normal exit on Ctrl+C" << std::endl;
       io_service.stop();
